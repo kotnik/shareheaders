@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import os
 import sys
-import re
 import json
 from urllib.request import urlopen
 from contextlib import closing
@@ -52,17 +51,27 @@ def mail_ip_location():
             sys.exit(1)
     signal.signal(signal.SIGINT, signal_handler)
 
-    print("From\tIP\tCountry\tCity\tDatetime\tDate\tTime")
+    print("From\tIP\tCountry\tCity\tDatetime\tDate\tTime\tMailer")
     for msg in utils.mails(MD):
-        if not "from" in msg:
+
+        if not "from" in msg or "From" not in msg:
             continue
 
-        if msg.get_all("received"):
+        received = msg.get_all("received")
+        if not received:
+            received = msg.get_all("Received")
+
+        if received:
             # Uzimamo poslednji `received` heder, u njemu se nalazi IP adresa
             # pošiljaoca.
-            first_bounce = msg.get_all("received")[-1]
+            first_bounce = received[-1]
             try:
-                fr = next(utils.extract_mail_adresses(msg["from"]))
+                fr = next(utils.extract_mail_adresses(msg["From"]))
+            except StopIteration:
+                fr = None
+            try:
+                if not fr:
+                    fr = next(utils.extract_mail_adresses(msg["from"]))
                 ip = next(utils.extract_ips(first_bounce))
             except StopIteration:
                 continue
@@ -89,14 +98,18 @@ def mail_ip_location():
             if msg_datetime:
                 parsed_datetime = utils.parse_date(msg_datetime)
                 if parsed_datetime:
-                    msg_date = time.strftime("%d/%m/%Y", parsed_datetime)
+                    msg_date = time.strftime("%d %b %Y", parsed_datetime)
                     msg_time = time.strftime("%H:%M:%S", parsed_datetime)
             lookup_map[ip]["datetime"] = msg_datetime
             lookup_map[ip]["date"] = msg_date
             lookup_map[ip]["time"] = msg_time
 
+            # Program korišten za slanje mejla.
+            msg_mailer = msg.get("X-Mailer", "")
+            lookup_map[ip]["mailer"] = msg_mailer
+
             # Štampaj!
-            print("{}\t{}\t{}\t{}\t{}\t{}\t{}".format(
+            print("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}".format(
                 fr.lower(),
                 ip,
                 lookup_map[ip]["country"],
@@ -104,6 +117,7 @@ def mail_ip_location():
                 lookup_map[ip]["datetime"],
                 lookup_map[ip]["date"],
                 lookup_map[ip]["time"],
+                lookup_map[ip]["mailer"],
             ))
 
     # Sačuvaj IP lookup cache.
